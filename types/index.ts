@@ -27,6 +27,7 @@ export interface PullRequest {
   languages?: Record<string, number>; // Language -> percentage of lines changed
   reviewCount?: number;
   reviews?: PRReview[];
+  complexity?: number; // 0-100 complexity score
 }
 
 export interface ContributorStats {
@@ -39,6 +40,7 @@ export interface ContributorStats {
   deletions: number;
   prs: PullRequest[];
   languageStats?: Record<string, number>; // Language -> percentage of total lines
+  avgComplexity?: number; // Average complexity score across all PRs
 }
 
 export interface ReviewerStats {
@@ -65,6 +67,7 @@ export interface AnalysisResult {
   contributors: ContributorStats[];
   reviewers: ReviewerStats[];
   totalReviews: number;
+  avgComplexity: number; // Average complexity across all PRs
   prs: PullRequest[];
   timeline: TimelineData[];
   repos: string[];

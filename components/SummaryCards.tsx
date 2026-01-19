@@ -1,8 +1,9 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { GitPullRequest, Users, GitMerge, BarChart3 } from "lucide-react";
+import { GitPullRequest, Users, GitMerge, BarChart3, Gauge } from "lucide-react";
 import { AnalysisResult, PRSize } from "@/types";
+import { getComplexityLevel } from "@/lib/analyzer";
 
 interface SummaryCardsProps {
   data: AnalysisResult | null;
@@ -16,6 +17,9 @@ export function SummaryCards({ data, loading }: SummaryCardsProps) {
     const sorted = sizes.sort((a, b) => b[1] - a[1]);
     return sorted[0]?.[1] > 0 ? sorted[0][0] : "-";
   };
+
+  const avgComplexity = data?.avgComplexity ?? 0;
+  const complexityLevel = data ? getComplexityLevel(avgComplexity) : "-";
 
   const cards = [
     {
@@ -42,10 +46,16 @@ export function SummaryCards({ data, loading }: SummaryCardsProps) {
       description: "Predominant PR size category",
       icon: BarChart3,
     },
+    {
+      title: "Avg Complexity",
+      value: data ? `${avgComplexity}` : "-",
+      description: data ? `${complexityLevel} (0-100 scale)` : "Complexity score",
+      icon: Gauge,
+    },
   ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
       {cards.map((card) => (
         <Card key={card.title}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

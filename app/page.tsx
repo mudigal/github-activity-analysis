@@ -331,6 +331,11 @@ export default function Dashboard() {
       0
     );
 
+    // Calculate average complexity for filtered PRs
+    const newAvgComplexity = fullyFilteredPRs.length > 0
+      ? Math.round(fullyFilteredPRs.reduce((sum, pr) => sum + (pr.complexity || 0), 0) / fullyFilteredPRs.length)
+      : 0;
+
     return {
       ...data,
       totalPRs: fullyFilteredPRs.length,
@@ -342,6 +347,7 @@ export default function Dashboard() {
       contributors: newContributors,
       reviewers: newReviewers,
       totalReviews: newTotalReviews,
+      avgComplexity: newAvgComplexity,
       sizeDistribution: newSizeDistribution,
       languageDistribution: sortedLangDist,
       timeline: newTimeline,

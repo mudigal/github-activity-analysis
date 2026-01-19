@@ -41,6 +41,119 @@ export function getSizeBgClass(size: PRSize): string {
   return classes[size];
 }
 
+// Language complexity weights for calculating code complexity
+const LANGUAGE_COMPLEXITY_WEIGHTS: Record<string, number> = {
+  // High complexity - systems languages, strict typing, manual memory management
+  'C': 1.5, 'C++': 1.5, 'Rust': 1.5, 'Go': 1.4, 'Scala': 1.4, 'Haskell': 1.5,
+  // Medium complexity - strongly typed, OOP languages
+  'Java': 1.2, 'TypeScript': 1.2, 'C#': 1.2, 'Kotlin': 1.2, 'Swift': 1.2, 'F#': 1.3,
+  // Standard complexity - dynamic/scripting languages
+  'JavaScript': 1.0, 'Python': 1.0, 'Ruby': 1.0, 'PHP': 1.0, 'Perl': 1.0,
+  'Elixir': 1.1, 'Clojure': 1.2, 'Erlang': 1.2, 'Lua': 1.0, 'R': 1.0,
+  // Lower complexity - markup, config, documentation
+  'HTML': 0.5, 'CSS': 0.6, 'SCSS': 0.7, 'LESS': 0.7,
+  'Markdown': 0.3, 'JSON': 0.4, 'YAML': 0.4, 'TOML': 0.4, 'XML': 0.5,
+  // Frontend frameworks
+  'Vue': 1.1, 'Svelte': 1.0, 'Dart': 1.1,
+  // Shell
+  'Shell': 0.8,
+  // SQL
+  'SQL': 0.9,
+  // Default
+  'Other': 1.0,
+};
+
+/**
+ * Calculate complexity score for a PR (0-100)
+ *
+ * Components:
+ * 1. Size Component (0-40): Based on lines changed
+ * 2. File Spread Component (0-25): Based on number of files
+ * 3. Language Complexity Component (0-20): Based on language weights
+ * 4. Review Intensity Component (0-15): Based on number of reviews
+ */
+export function calculateComplexity(pr: PullRequest): number {
+  const linesChanged = pr.additions + pr.deletions;
+
+  // 1. Size Component (0-40 points)
+  let sizeScore: number;
+  if (linesChanged <= 50) sizeScore = 5;
+  else if (linesChanged <= 200) sizeScore = 15;
+  else if (linesChanged <= 500) sizeScore = 25;
+  else if (linesChanged <= 1000) sizeScore = 35;
+  else sizeScore = 40;
+
+  // 2. File Spread Component (0-25 points)
+  let fileScore: number;
+  if (pr.changedFiles <= 2) fileScore = 5;
+  else if (pr.changedFiles <= 5) fileScore = 10;
+  else if (pr.changedFiles <= 10) fileScore = 15;
+  else if (pr.changedFiles <= 20) fileScore = 20;
+  else fileScore = 25;
+
+  // 3. Language Complexity Component (0-20 points)
+  let languageScore = 10; // Default if no language info
+  if (pr.languages && Object.keys(pr.languages).length > 0) {
+    let weightedSum = 0;
+    let totalWeight = 0;
+
+    for (const [lang, percentage] of Object.entries(pr.languages)) {
+      const weight = LANGUAGE_COMPLEXITY_WEIGHTS[lang] || 1.0;
+      weightedSum += weight * percentage;
+      totalWeight += percentage;
+    }
+
+    if (totalWeight > 0) {
+      const avgWeight = weightedSum / totalWeight;
+      // Scale: weight 0.3 -> 0 points, weight 1.5 -> 20 points
+      languageScore = Math.round(((avgWeight - 0.3) / 1.2) * 20);
+      languageScore = Math.max(0, Math.min(20, languageScore));
+    }
+  }
+
+  // 4. Review Intensity Component (0-15 points)
+  let reviewScore: number;
+  const reviewCount = pr.reviewCount || 0;
+  if (reviewCount === 0) reviewScore = 0;
+  else if (reviewCount <= 2) reviewScore = 5;
+  else if (reviewCount <= 5) reviewScore = 10;
+  else reviewScore = 15;
+
+  // Total complexity (0-100)
+  const total = sizeScore + fileScore + languageScore + reviewScore;
+  return Math.min(100, Math.max(0, total));
+}
+
+/**
+ * Get complexity level label based on score
+ */
+export function getComplexityLevel(score: number): 'Low' | 'Medium' | 'High' | 'Very High' {
+  if (score < 25) return 'Low';
+  if (score < 50) return 'Medium';
+  if (score < 75) return 'High';
+  return 'Very High';
+}
+
+/**
+ * Get complexity color based on score
+ */
+export function getComplexityColor(score: number): string {
+  if (score < 25) return '#22c55e'; // green
+  if (score < 50) return '#eab308'; // yellow
+  if (score < 75) return '#f97316'; // orange
+  return '#ef4444'; // red
+}
+
+/**
+ * Get complexity background class based on score
+ */
+export function getComplexityBgClass(score: number): string {
+  if (score < 25) return 'bg-green-100 text-green-800';
+  if (score < 50) return 'bg-yellow-100 text-yellow-800';
+  if (score < 75) return 'bg-orange-100 text-orange-800';
+  return 'bg-red-100 text-red-800';
+}
+
 export function aggregateByContributor(prs: PullRequest[]): ContributorStats[] {
   const contributorMap = new Map<string, ContributorStats & { languageLines: Record<string, number> }>();
 
@@ -105,6 +218,11 @@ export function aggregateByContributor(prs: PullRequest[]): ContributorStats[] {
       }
     }
 
+    // Calculate average complexity for this contributor
+    const avgComplexity = data.prs.length > 0
+      ? Math.round(data.prs.reduce((sum, pr) => sum + (pr.complexity || 0), 0) / data.prs.length)
+      : undefined;
+
     contributors.push({
       username: data.username,
       avatar: data.avatar,
@@ -115,6 +233,7 @@ export function aggregateByContributor(prs: PullRequest[]): ContributorStats[] {
       deletions: data.deletions,
       prs: data.prs,
       languageStats: Object.keys(languageStats).length > 0 ? languageStats : undefined,
+      avgComplexity,
     });
   }
 
@@ -268,21 +387,32 @@ export function analyzeResults(
   startDate: Date,
   endDate: Date
 ): AnalysisResult {
-  const mergedPRs = prs.filter(pr => pr.state === 'merged').length;
-  const openPRs = prs.filter(pr => pr.state === 'open').length;
-  const closedPRs = prs.filter(pr => pr.state === 'closed').length;
+  // Calculate complexity for each PR
+  const prsWithComplexity = prs.map(pr => ({
+    ...pr,
+    complexity: pr.complexity ?? calculateComplexity(pr),
+  }));
 
-  const contributors = aggregateByContributor(prs);
-  const reviewers = aggregateByReviewer(prs);
-  const sizeDistribution = aggregateSizeDistribution(prs);
-  const languageDistribution = aggregateLanguageDistribution(prs);
-  const timeline = aggregateTimeline(prs, startDate, endDate);
+  const mergedPRs = prsWithComplexity.filter(pr => pr.state === 'merged').length;
+  const openPRs = prsWithComplexity.filter(pr => pr.state === 'open').length;
+  const closedPRs = prsWithComplexity.filter(pr => pr.state === 'closed').length;
+
+  const contributors = aggregateByContributor(prsWithComplexity);
+  const reviewers = aggregateByReviewer(prsWithComplexity);
+  const sizeDistribution = aggregateSizeDistribution(prsWithComplexity);
+  const languageDistribution = aggregateLanguageDistribution(prsWithComplexity);
+  const timeline = aggregateTimeline(prsWithComplexity, startDate, endDate);
 
   // Calculate total reviews
-  const totalReviews = prs.reduce((sum, pr) => sum + (pr.reviewCount || 0), 0);
+  const totalReviews = prsWithComplexity.reduce((sum, pr) => sum + (pr.reviewCount || 0), 0);
+
+  // Calculate average complexity
+  const avgComplexity = prsWithComplexity.length > 0
+    ? Math.round(prsWithComplexity.reduce((sum, pr) => sum + (pr.complexity || 0), 0) / prsWithComplexity.length)
+    : 0;
 
   return {
-    totalPRs: prs.length,
+    totalPRs: prsWithComplexity.length,
     mergedPRs,
     openPRs,
     closedPRs,
@@ -292,7 +422,8 @@ export function analyzeResults(
     contributors,
     reviewers,
     totalReviews,
-    prs,
+    avgComplexity,
+    prs: prsWithComplexity,
     timeline,
     repos,
     dateRange: {
